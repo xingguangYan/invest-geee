@@ -1,0 +1,480 @@
+# coding=UTF-8
+"""Functions for reading and writing InVEST model parameters.
+
+A **datastack** for InVEST is a compressed archive that includes the
+arguments for a model, all of the data files referenced by the arguments, and
+a logfile with some extra information about how the archive was created.  The
+resulting archive can then be extracted on a different computer and should
+have all of the information it needs to run an InVEST model in its entirity.
+
+A **parameter set** for InVEST is a JSON-formatted text file that contains all
+of the parameters needed to run the current model, where the parameters are
+located on the local hard disk.  Paths to files may be either relative or
+absolute.  If paths are relative, they are interpreted as relative to the
+location of the parameter set file.
+
+A **logfile** for InVEST is a text file that is written to disk for each model
+run.
+"""
+
+import ast
+import collections
+import importlib
+import json
+import logging
+import math
+import os
+import pprint
+import re
+import shutil
+import tarfile
+import tempfile
+
+from natcap.invest import models
+from natcap.invest import spec
+from natcap.invest import utils
+from natcap.invest.utils import base_model_id
+
+LOGGER = logging.getLogger(__name__)
+DATASTACK_EXTENSION = '.invest.tar.gz'
+PARAMETER_SET_EXTENSION = '.invest.json'
+DATASTACK_PARAMETER_FILENAME = 'parameters' + PARAMETER_SET_EXTENSION
+
+
+ParameterSet = collections.namedtuple('ParameterSet',
+                                      'args model_id')
+
+
+class Datastack():
+    """Represent a datastack for the purposes of building an archive."""
+    def __init__(self, target_dir):
+        self.target_dir = target_dir
+        self.files_found = {}
+        self.args = {}
+
+
+def _tarfile_safe_extract(archive_path, dest_dir_path):
+    """Extract a tarfile in a safe way.
+
+    This function avoids the CVE-2007-4559 exploit that's been a vulnerability
+    in the python stdlib for at least 15 years now and should really be patched
+    upstream.
+
+    Args:
+        archive_path (string): The path to a tarfile, such as a datastack
+            archive created by InVEST.
+        dest_dir_path (string): The path to the destination directory, where
+            the contents should be unzipped.
+
+    Returns:
+        ``None``
+    """
+    # The guts of this function are taken from Trellix's PR to InVEST.  See
+    # https://github.com/natcap/invest/pull/1099 for details.
+    with tarfile.open(archive_path) as tar:
+        def is_within_directory(directory, target):
+            abs_directory = os.path.abspath(directory)
+            abs_target = os.path.abspath(target)
+            prefix = os.path.commonprefix([abs_directory, abs_target])
+            return prefix == abs_directory
+
+        def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+            for member in tar.getmembers():
+                member_path = os.path.join(path, member.name)
+                if not is_within_directory(path, member_path):
+                    raise Exception("Attempted Path Traversal in Tar File")
+            tar.extractall(path, members, numeric_owner=numeric_owner)
+
+        safe_extract(tar, dest_dir_path)
+
+
+def get_datastack_info(filepath, extract_path=None):
+    """Get information about a datastack.
+
+    Args:
+        filepath (string): The path to a file on disk that can be extracted as
+            a datastack, parameter set, or logfile.
+        extract_path (str): Path to a directory to extract the datastack, if
+            provided as an archive. Will be overwritten if it already exists,
+            or created if it does not already exist.
+
+    Returns:
+        A 2-tuple.  The first item of the tuple is one of:
+
+            * ``"archive"`` when the file is a datastack archive.
+            * ``"json"`` when the file is a json parameter set.
+            * ``"logfile"`` when the file is a text logfile.
+
+        The second item of the tuple is a ParameterSet namedtuple with the raw
+        parsed args, model id and invest version that the file was built with.
+    """
+    if tarfile.is_tarfile(filepath):
+        if not extract_path:
+            raise ValueError('extract_path must be provided if using archive')
+        if os.path.isfile(extract_path):
+            os.remove(extract_path)
+        elif os.path.isdir(extract_path):
+            shutil.rmtree(extract_path)
+        os.mkdir(extract_path)
+        # If it's a tarfile, we need to extract the parameters file to be able
+        # to inspect the parameters and model details.
+        extract_datastack_archive(filepath, extract_path)
+        return 'archive', extract_parameter_set(
+            os.path.join(extract_path, DATASTACK_PARAMETER_FILENAME))
+
+    try:
+        return 'json', extract_parameter_set(filepath)
+    except ValueError:
+        # When a JSON object can't be decoded, it must not be a paramset.
+        pass
+
+    return 'logfile', extract_parameters_from_logfile(filepath)
+
+
+def build_datastack_archive(args, model_id, datastack_path):
+    """Build an InVEST datastack from an arguments dict.
+
+    Args:
+        args (dict): The arguments dictionary to include in the datastack.
+        model_id (string): The id the model these args are for. For core models,
+            this is the regular id. For plugins, this has the format model_id@version
+        datastack_path (string): The path to where the datastack archive
+            should be written.
+
+    Returns:
+        ``None``
+    """
+    module = importlib.import_module(
+        # For plugins, use the model id before the '@'
+        name=models.model_id_to_pyname[base_model_id(model_id)])
+
+    args = args.copy()
+    temp_workspace = tempfile.mkdtemp(prefix='datastack_')
+    data_dir = os.path.join(temp_workspace, 'data')
+    os.makedirs(data_dir)
+
+    # write a logfile to the archive
+    logfile = os.path.join(temp_workspace, 'log.txt')
+    archive_filehandler = logging.FileHandler(logfile, 'w')
+    archive_formatter = logging.Formatter(
+        "%(name)-25s %(levelname)-8s %(message)s")
+    archive_filehandler.setFormatter(archive_formatter)
+    archive_filehandler.setLevel(logging.NOTSET)
+    logging.getLogger().addHandler(archive_filehandler)
+
+    LOGGER.debug(f'Keys: {sorted(args.keys())}')
+
+    datastack = Datastack(data_dir)
+    for key in args:
+        LOGGER.info(f'Starting to archive arg "{key}": {args[key]}')
+        # Possible that a user might pass an args key that doesn't belong to
+        # this model.  Skip if so.
+        try:
+            input_spec = module.MODEL_SPEC.get_input(key)
+        except KeyError:
+            LOGGER.info(f'Skipping arg {key}; not in model MODEL_SPEC')
+            continue
+        input_spec.archive_for_datastack(args[key], datastack)
+
+    LOGGER.info('Args preprocessing complete')
+    LOGGER.debug(f'found files: \n{pprint.pformat(datastack.files_found)}')
+    LOGGER.debug(f'new arguments: \n{pprint.pformat(datastack.args)}')
+    # write parameters to a new json file in the temp workspace
+    param_file_uri = os.path.join(temp_workspace,
+                                  'parameters' + PARAMETER_SET_EXTENSION)
+    parameter_set = build_parameter_set(
+        datastack.args, model_id, param_file_uri, relative=True)
+
+    # write metadata for all files in args
+    for k, v in args.items():
+        if isinstance(v, str) and os.path.isfile(v):
+            # write metadata file to target location (in temp dir)
+            module.MODEL_SPEC.get_input(k).write_metadata_file(
+                datasource_path=v,
+                keywords_list=[module.MODEL_SPEC.model_id, 'InVEST'],
+                out_workspace=os.path.join(
+                    temp_workspace, os.path.dirname(parameter_set['args'][k])))
+
+    # Remove the handler before archiving the working dir (and the logfile)
+    archive_filehandler.close()
+    logging.getLogger().removeHandler(archive_filehandler)
+
+    # archive the workspace.
+    with tempfile.TemporaryDirectory() as temp_dir:
+        archive_name = shutil.make_archive(
+            os.path.join(temp_dir, 'invest_archive'), 'gztar',
+            root_dir=temp_workspace, logger=LOGGER, verbose=True)
+        shutil.move(archive_name, datastack_path)
+
+
+def extract_datastack_archive(datastack_path, dest_dir_path):
+    """Extract a datastack to a given folder.
+
+    Args:
+        datastack_path (string): The path to a datastack archive on disk.
+        dest_dir_path (string): The path to a directory.  The contents of the
+            demonstration datastack archive will be extracted into this
+            directory. If the directory does not exist, it will be created.
+
+    Returns:
+        ``args`` (dict): A dictionary of arguments from the extracted
+            archive.  Paths to files are absolute paths.
+    """
+    LOGGER.info('Extracting archive %s to %s', datastack_path, dest_dir_path)
+    dest_dir_path = os.path.abspath(dest_dir_path)
+    # extract the archive to the workspace
+    _tarfile_safe_extract(datastack_path, dest_dir_path)
+
+    # get the arguments dictionary
+    with open(os.path.join(
+            dest_dir_path, DATASTACK_PARAMETER_FILENAME)) as datastack_file:
+        arguments_dict = json.load(datastack_file)['args']
+
+    def _rewrite_paths(args_param):
+        """Converts paths in `args_param` to paths in `dest_dir_path."""
+        if isinstance(args_param, dict):
+            _args = {}
+            for key, value in args_param.items():
+                _args[key] = _rewrite_paths(value)
+            return _args
+        elif isinstance(args_param, list):
+            return [_rewrite_paths(param) for param in args_param]
+        elif isinstance(args_param, str):
+            # Special case: if the value is blank, return an empty string
+            # rather than assuming it's the CWD.
+            if args_param.strip() == '':
+                return ''
+
+            # Archives always store linux-style paths.  os.path.normpath
+            # converts forward slashes to backslashes if we're on Windows.
+            data_path = os.path.normpath(
+                os.path.join(dest_dir_path, args_param))
+            if os.path.exists(data_path):
+                return data_path
+        return args_param
+
+    new_args = _rewrite_paths(arguments_dict)
+    LOGGER.debug('Expanded parameters as \n%s', pprint.pformat(new_args))
+    return new_args
+
+
+def build_parameter_set(args, model_id, paramset_path, relative=False):
+    """Record a parameter set to a file on disk.
+
+    Args:
+        args (dict): The args dictionary to record to the parameter set.
+        model_id (string): An identifier string for the callable or InVEST
+            model that would accept the arguments given.
+        paramset_path (string): The path to the file on disk where the
+            parameters should be recorded.
+        relative (bool): Whether to save the paths as relative.  If ``True``,
+            The datastack assumes that paths are relative to the parent
+            directory of ``paramset_path``.
+
+    Returns:
+        parameter dictionary saved in ``paramset_path``
+
+    Raises:
+        ValueError if creating a relative path fails.
+    """
+    def _recurse(args_param):
+        if isinstance(args_param, dict):
+            return dict((key, _recurse(value))
+                        for (key, value) in args_param.items())
+        elif isinstance(args_param, list):
+            return [_recurse(param) for param in args_param]
+        elif isinstance(args_param, str):
+            # If args_param is empty string '' os.path.exists will be False
+            if os.path.exists(args_param):
+                normalized_path = os.path.normpath(args_param)
+                if relative:
+                    # Handle special case where python assumes that '.'
+                    # represents the CWD
+                    if (normalized_path == '.' or
+                            os.path.dirname(paramset_path) == normalized_path):
+                        return '.'
+                    try:
+                        temp_rel_path = os.path.relpath(
+                            normalized_path, os.path.dirname(paramset_path))
+                    except ValueError:
+                        # On Windows, ValueError is raised when ``path`` and
+                        # ``start`` are on different drives
+                        raise ValueError(
+                            """Error: Cannot save datastack with relative
+                            paths across drives. Choose a different save
+                            location, or use absolute paths.""")
+                    # Always save unix paths.
+                    linux_style_path = temp_rel_path.replace('\\', '/')
+                else:
+                    # Always save unix paths.
+                    linux_style_path = normalized_path.replace('\\', '/')
+
+                return linux_style_path
+        return args_param
+    parameter_data = {
+        'model_id': model_id,
+        'args': _recurse(args)
+    }
+    with open(paramset_path, 'w', encoding='UTF-8') as paramset_file:
+        paramset_file.write(
+            json.dumps(parameter_data,
+                       indent=4,
+                       sort_keys=True))
+    return parameter_data
+
+
+def extract_parameter_set(paramset_path):
+    """Extract and return attributes from a parameter set.
+
+    Any string values found will have environment variables expanded.  See
+    :py:ref:os.path.expandvars and :py:ref:os.path.expanduser for details.
+
+    Args:
+        paramset_path (string): The file containing a parameter set.
+
+    Returns:
+        A ``ParameterSet`` namedtuple with these attributes::
+
+            args (dict): The arguments dict for the callable
+            model_id (string): the ID of the model that these parameters are for
+    """
+    paramset_parent_dir = os.path.dirname(os.path.abspath(paramset_path))
+    with open(paramset_path, 'r', encoding='UTF-8') as paramset_file:
+        params_raw = paramset_file.read()
+
+    read_params = json.loads(params_raw)
+
+    def _recurse(args_param):
+        if isinstance(args_param, dict):
+            return dict((key, _recurse(value)) for (key, value) in
+                        args_param.items())
+        elif isinstance(args_param, list):
+            return [_recurse(param) for param in args_param]
+        elif isinstance(args_param, str) and len(args_param) > 0:
+            # Attempt to parse true/false strings.
+            try:
+                return {'true': True, 'false': False}[args_param.lower()]
+            except KeyError:
+                # Probably not a boolean, so continue checking paths.
+                pass
+
+            # Don't expand or modify remote paths
+            gdal_path = utils._GDALPath.from_uri(args_param)
+            if not gdal_path.is_local:
+                return args_param
+
+            # Convert paths to whatever makes sense for the current OS.
+            expanded_param = os.path.expandvars(
+                os.path.expanduser(
+                    os.path.normpath(args_param)))
+            if os.path.isabs(expanded_param):
+                return expanded_param
+            else:
+                paramset_rel_path = os.path.abspath(
+                    os.path.join(paramset_parent_dir, args_param))
+                if os.path.exists(paramset_rel_path):
+                    return paramset_rel_path
+        else:
+            return args_param
+        return args_param
+
+    if 'model_id' in read_params:
+        # New style datastacks include the model ID
+        model_id = read_params['model_id']
+    else:
+        # Old style datastacks use the pyname (core models only, no plugins)
+        _module = importlib.import_module(read_params['model_name'])
+        model_id = _module.MODEL_SPEC.model_id
+    return ParameterSet(
+        args=_recurse(read_params['args']),
+        model_id=model_id)
+
+
+def extract_parameters_from_logfile(logfile_path):
+    """Parse an InVEST logfile for the parameters (args) dictionary.
+
+    Argument key-value pairs are parsed, one pair per line, starting the line
+    after the line starting with ``"Arguments"``, and ending with a blank line.
+    If no such section exists within the logfile, ``ValueError`` will be
+    raised.
+
+    If possible, the model name and InVEST version will be parsed from the
+    same line as ``"Arguments"``, but IUI-formatted logfiles (without model
+    name and InVEST version information) are also supported.
+
+    Args:
+        logfile_path (string): The path to an InVEST logfile on disk.
+
+    Returns:
+        An instance of the ParameterSet namedtuple.
+
+    Raises:
+        ValueError - when no arguments could be parsed from the logfile.
+    """
+    with open(logfile_path, 'r', encoding='utf-8') as logfile:
+        detected_args = []
+        args_started = False
+        for line in logfile:
+            line = line.strip()
+
+            if not args_started:
+                # Line would look something like this:
+                # "Arguments for InVEST carbon 3.4.1rc1:\n"
+                # (new style, using model id)
+                # or
+                # "Arguments for InVEST natcap.invest.carbon 3.4.1rc1:\n"
+                # (old style, using model pyname)
+                if line.startswith('Arguments for InVEST'):
+                    identifier = line.split(' ')[3]
+                    if identifier.startswith('natcap.invest'):
+                        _module = importlib.import_module(identifier)
+                        model_id = _module.MODEL_SPEC.model_id
+                    else:
+                        # New style logfiles use the model id
+                        model_id = identifier
+                    args_started = True
+                    continue
+            else:
+                if line == '':
+                    break
+                detected_args.append(line)
+
+    if not detected_args:
+        raise ValueError('No arguments could be parsed from %s' % logfile_path)
+
+    args_dict = {}
+    for argument in detected_args:
+        # args key is everything before the whitespace
+        args_key = re.findall(r'^\w*', argument)[0]
+        args_value = re.sub('^%s' % args_key, '', argument).strip()
+
+        def _smart_cast(value):
+            """Attempt to cast a value to an int or a float.
+
+            Leave the value be if the value cannot be cast to either one.
+
+            Args:
+                value: The parameter value to try to cast.
+
+            Returns:
+                A possibly-cast version of the original value.
+            """
+            for cast_to_type in (float, int):
+                try:
+                    value = cast_to_type(value)
+                    break
+                except ValueError:
+                    pass
+            return value
+
+        try:
+            # This will cast values appropriately for int, float, bool,
+            # nonetype, list.
+            args_value = ast.literal_eval(args_value)
+        except (ValueError, SyntaxError):
+            # If ast.literal_eval can't evaluate the string, keep the string
+            # as it is.
+            pass
+
+        args_dict[args_key] = args_value
+    return ParameterSet(args_dict, model_id)

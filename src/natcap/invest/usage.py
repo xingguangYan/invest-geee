@@ -1,0 +1,162 @@
+"""Module that provides functions for usage logging."""
+import locale
+import logging
+import platform
+import sys
+import importlib
+
+from osgeo import osr
+import natcap.invest
+import pygeoprocessing
+import requests
+
+from . import utils
+from . import spec
+
+ENCODING = sys.getfilesystemencoding()
+LOGGER = logging.getLogger(__name__)
+
+_ENDPOINTS_INDEX_URL = (
+    'http://data.naturalcapitalproject.org/server_registry/'
+    'invest_usage_logger_v2/index.html')
+
+
+def _calculate_args_bounding_box(args, model_spec):
+    """Calculate the bounding boxes of any GIS types found in `args_dict`.
+
+    Args:
+        args (dict): a string key and any value pair dictionary.
+        model_spec (dict): the model's MODEL_SPEC
+
+    Returns:
+        bb_intersection, bb_union tuple that's either the lat/lng bounding
+            intersection and union bounding boxes of the gis types referred to
+            in args_dict.  If no GIS types are present, this is a (None, None)
+            tuple.
+    """
+
+    def _merge_bounding_boxes(bb1, bb2, mode):
+        """Merge two bounding boxes through union or intersection.
+
+        Args:
+            bb1 (list of float): bounding box of the form
+                [minx, maxy, maxx, miny] or None
+            bb2 (list of float): bounding box of the form
+                [minx, maxy, maxx, miny] or None
+            mode (string): either "union" or "intersection" indicating the
+                how to combine the two bounding boxes.
+
+        Returns:
+            either the intersection or union of bb1 and bb2 depending
+            on mode.  If either bb1 or bb2 is None, the other is returned.
+            If both are None, None is returned.
+        """
+        if bb1 is None:
+            return bb2
+        if bb2 is None:
+            return bb1
+
+        if mode == "union":
+            comparison_ops = [min, max, max, min]
+        if mode == "intersection":
+            comparison_ops = [max, min, min, max]
+
+        bb_out = [op(x, y) for op, x, y in zip(comparison_ops, bb1, bb2)]
+        return bb_out
+
+    bb_intersection = None
+    bb_union = None
+    for key, value in args.items():
+        # Using gdal.OpenEx to check if an input is spatial caused the
+        # model to hang sometimes (possible race condition), so only
+        # get the bounding box of inputs that are known to be spatial.
+        # Also eliminate any string paths that are empty to prevent an
+        # exception. By the time we've made it to this function, all paths
+        # should already have been validated so the path is either valid or
+        # blank.
+        spatial_info = None
+        if (isinstance(model_spec.get_input(key),
+                spec.SingleBandRasterInput) and value.strip() != ''):
+            spatial_info = pygeoprocessing.get_raster_info(value)
+        elif (isinstance(model_spec.get_input(key),
+                spec.VectorInput) and value.strip() != ''):
+            spatial_info = pygeoprocessing.get_vector_info(value)
+
+        if spatial_info:
+            local_bb = spatial_info['bounding_box']
+            projection_wkt = spatial_info['projection_wkt']
+            spatial_ref = osr.SpatialReference()
+            spatial_ref.ImportFromWkt(projection_wkt)
+
+            try:
+                # means there's a GIS type with a well defined bounding box
+                # create transform, and reproject local bounding box to
+                # lat/lng
+                lat_lng_ref = osr.SpatialReference()
+                lat_lng_ref.ImportFromEPSG(4326)  # EPSG 4326 is lat/lng
+                to_lat_trans = utils.create_coordinate_transformer(
+                    spatial_ref, lat_lng_ref)
+                for point_index in [0, 2]:
+                    local_bb[point_index], local_bb[point_index + 1], _ = (
+                        to_lat_trans.TransformPoint(
+                            local_bb[point_index],
+                            local_bb[point_index+1]))
+
+                bb_intersection = _merge_bounding_boxes(
+                    local_bb, bb_intersection, 'intersection')
+                bb_union = _merge_bounding_boxes(
+                    local_bb, bb_union, 'union')
+            except Exception as transform_error:
+                # All kinds of exceptions from bad transforms or CSV files
+                # or dbf files could get us to this point, just don't
+                # bother with the local_bb at all
+                LOGGER.exception(
+                    f'Error when transforming coordinates: {transform_error}')
+        else:
+            LOGGER.debug(f'Arg {key} of type {type(model_spec.get_input(key))} '
+                          'excluded from bounding box calculation')
+
+    return bb_intersection, bb_union
+
+
+def _log_model(
+        pyname, model_args, invest_interface, model_type, plugin_source):
+    """Log information about a model run to a remote server.
+
+    Args:
+        pyname (string): a python string of the package version.
+        model_args (dict): the traditional InVEST argument dictionary.
+        invest_interface (string): a string identifying the calling UI,
+            e.g. `Qt` or 'Workbench'.
+        model_type (string): 'core' or 'plugin'
+        plugin_source (string): For plugins, a string identifying the source of
+            the plugin (e.g. 'git+https://github.com/foo/bar' or 'local'). For
+            core models, this is None.
+
+    Returns:
+        None
+    """
+    logger = logging.getLogger('natcap.invest.usage._log_model')
+
+    model_spec = importlib.import_module(pyname).MODEL_SPEC
+
+    try:
+        bounding_box_intersection, bounding_box_union = (
+            _calculate_args_bounding_box(model_args, model_spec))
+        log_start_url = requests.get(_ENDPOINTS_INDEX_URL).json()['START']
+        requests.post(log_start_url, data={
+            'model_name': pyname,
+            'invest_release': natcap.invest.__version__,
+            'invest_interface': invest_interface,
+            'system_full_platform_string': platform.platform(),
+            'system_preferred_encoding': locale.getdefaultlocale()[1],
+            'system_default_language': locale.getdefaultlocale()[0],
+            'bounding_box_intersection': str(bounding_box_intersection),
+            'bounding_box_union': str(bounding_box_union),
+            'type': model_type,
+            'source': plugin_source
+        })
+    except Exception as exception:
+        # An exception was thrown, we don't care.
+        logger.warning(
+            f'an exception encountered when logging: {repr(exception)}')

@@ -1,0 +1,130 @@
+[build-system]
+requires = ["setuptools>=64.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "invest-geee"
+version = "3.20.2"
+description = "InVEST (Integrated Valuation of Ecosystem Services and Tradeoffs) - pure-Python package with GEE JavaScript port"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Natural Capital Alliance", email = "natcap-software@lists.stanford.edu" },
+]
+keywords = ["invest", "ecosystem services", "earth engine", "gee", "natural capital"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+
+dependencies = [
+    "numpy>=1.21",
+    "pandas>=1.3",
+    "shapely>=2.0",
+    "fiona>=1.8",
+    "rasterio>=1.2",
+    "geopandas>=0.12",
+    "scipy>=1.7",
+    "matplotlib>=3.4",
+    "flask>=2.0",
+    "pint>=0.18",
+    "jsonschema>=4.0",
+    "click>=8.0",
+    "tabulate>=0.8",
+    "pydantic>=2.0",
+    "requests>=2.25",
+    "chardet>=4.0",
+    "charset-normalizer>=2.0",
+    "distinctipy>=1.3",
+    "geometamaker>=0.3",
+    "altair>=5.0",
+    "branca>=0.6",
+    "folium>=0.14",
+    "mapclassify>=2.4",
+    "psutil>=5.9",
+    "pyproj>=3.0",
+    "docutils>=0.16",
+    "babel>=2.10",
+    "h5py>=3.7",
+    "pyyaml>=6.0",
+    "certifi>=2022.12.24",
+    "rtree>=0.9",
+    "taskgraph>=0.11",
+    "pyro5>=5.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "flake8>=5.0",
+    "black>=22.0",
+    "isort>=5.10",
+    "mypy>=0.950",
+]
+docs = [
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=1.0",
+    "sphinx-autodoc-typehints>=1.0",
+]
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-mock>=3.0",
+]
+
+[project.scripts]
+invest = "natcap.invest.cli:main"
+invest-geee = "natcap.invest.geee:main"
+
+[project.urls]
+Homepage = "https://naturalcapitalalliance.stanford.edu/software/invest"
+Documentation = "https://naturalcapitalalliance.stanford.edu/software/invest"
+Repository = "https://github.com/natcap/invest"
+"Bug Tracker" = "https://github.com/natcap/invest/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["natcap*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+natcap = [
+    "internationalization/locales/*/LC_MESSAGES/*.mo",
+    "internationalization/locales/*/LC_MESSAGES/*.po",
+    "internationalization/messages.pot",
+    "unit_definitions.txt",
+    "reports/templates/*.html",
+    "reports/templates/models/*.html",
+    "reports/templates/*.js",
+    "reports/templates/models/*.js",
+    "gee_port/*.js",
+    "gee_port/src/**/*.js",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.8"
+ignore_missing_imports = true

@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test / coverage
+htmlcov/
+.coverage
+.coverage.*
+.pytest_cache/
+.tox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large local data and generated files
+invest_raw/
+invest_src.tar.gz
+dl_list.txt
+fetch_invest_src.py
+strip_cython.py
+write_pyproject.py
+docs/_sources/
+Base_Data/
+
+# Local temp files
+*.tmp
+*.temp
+
+# Local environment config
+.env
+.envrc

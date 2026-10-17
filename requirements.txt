@@ -1,0 +1,38 @@
+# requirements.txt
+# --------------------
+# This file records the packages and requirements needed in order for
+# all models of natcap.invest to work as expected.
+#
+# Note that there may be some OS-specific requirements, so be sure to run
+# `make check` to verify you have all the required packages.
+#
+# Any lines with "# pip-only" at the end will be processed by
+# scripts/convert-requirements-to-conda-yml.py as though it can only be found
+# on pip.
+
+gdal>=3.4.2
+pyro5
+pandas>=1.2.1
+numpy>=1.11.0,!=1.16.0
+rtree>=0.8.2,!=0.9.1
+shapely>=2.0.0
+scipy>=1.9.0,!=1.12.*
+pygeoprocessing>=2.4.10
+taskgraph>=0.11.0
+psutil>=5.6.6
+chardet>=3.0.4
+pint
+babel
+flask
+flask_cors
+requests
+geometamaker>=0.3.1
+pydantic
+certifi
+docutils
+altair>=6.0.0
+fiona
+geopandas
+jinja2
+matplotlib
+distinctipy
