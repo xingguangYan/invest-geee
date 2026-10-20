@@ -8,7 +8,7 @@
  * of the visible terrain.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   landscape_value: { about: 'Landscape value map (0-1).', type: 'raster', required: true },
@@ -31,24 +31,33 @@ var SPEC = {
  * @param {number} maxDistance  metres
  * @return {ee.Image}
  */
+// function computeScenicValue(landscapeValue, dem, viewers, maxDistance) {
+//   maxDistance = maxDistance === undefined ? 1000 : maxDistance;
+
+//   var distance = ee.Image(0);
+//   viewers.geometry().reduce(
+//     function (acc, geom) {
+//       var d = ee.Image.constant(0).distance();
+//       return null;
+//     }, null);
+
+//   // Approximate scenic value: mean landscape value within maxDistance,
+//   // weighted by 1/distance from the viewer centroid.
+//   var centroid = viewers.geometry().reduce(
+//     ee.Reducer.toList(), null);
+
+//   var scenic = landscapeValue.mean(ee.Kernel.circle(maxDistance / 30, false))
+//     .rename('scenic_value');
+
+//   return scenic;
+// }
+
+
+// 修改 `computeScenicValue` 函数内部，删去无效的 .reduce：
 function computeScenicValue(landscapeValue, dem, viewers, maxDistance) {
   maxDistance = maxDistance === undefined ? 1000 : maxDistance;
-
-  var distance = ee.Image(0);
-  viewers.geometry().reduce(
-    function (acc, geom) {
-      var d = ee.Image.constant(0).distance();
-      return null;
-    }, null);
-
-  // Approximate scenic value: mean landscape value within maxDistance,
-  // weighted by 1/distance from the viewer centroid.
-  var centroid = viewers.geometry().reduce(
-    ee.Reducer.toList(), null);
-
-  var scenic = landscapeValue.mean(ee.Kernel.circle(maxDistance / 30, false))
-    .rename('scenic_value');
-
+  // 【修复】直接使用 focal_mean 模糊化
+  var scenic = landscapeValue.focal_mean(maxDistance / 30, 'circle', 'pixels').rename('scenic_value');
   return scenic;
 }
 
