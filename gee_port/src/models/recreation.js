@@ -9,7 +9,7 @@
  * recreation amenities.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   amenity_map: { about: 'Map of recreation amenities.', type: 'raster', required: true },
@@ -34,7 +34,9 @@ function computeRecreationValue(amenity, population, maxDistance) {
   maxDistance = maxDistance === undefined ? 10000 : maxDistance;
 
   var popMask = population.gt(0);
-  var dist = popMask.distance().rename('distance_to_population');
+  // var dist = popMask.distance().rename('distance_to_population');
+  // 原代码：var dist = popMask.distance().rename('distance_to_population');
+var dist = popMask.distance(ee.Kernel.euclidean(maxDistance, 'meters')).rename('distance_to_population');
   var within = dist.lte(maxDistance);
 
   var popServed = population.multiply(within).rename('population_served');
