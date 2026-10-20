@@ -15,17 +15,21 @@
  * Drive-mounted rasters.
  */
 
+/**
+ * GEE Application entry point — demo of the InVEST port.
+ * 放在根目录的 main 文件里运行
+ */
+
 // ---------------------------------------------------------------------------
 // 1.  Import the InVEST library
 // ---------------------------------------------------------------------------
-var invest = require('./index.js');
+var invest = require('users/bqt2000204051/INVEST:index');
 
 // ---------------------------------------------------------------------------
 // 2.  Define sample inputs from publicly available GEE collections
 // ---------------------------------------------------------------------------
 
-// --- Land use / land cover (LCMAPS 30m, 2021 median composite) -------------
-// Reference: https://developers.google.com/earth-engine/datasets/catalog/LCMAPS_LCMAPS_CONSTANT_COVERAGE_L8_v13_12
+// --- Land use / land cover (LCMAPS 30m, 2021) ------------------------------
 var lulc_2021 = ee.Image('projects/gcp-public-dataset-forestry/assets/LCMAPS_LCMAPS_CONSTANT_COVERAGE_L8_v13_12')
                   .select('land_cover')
                   .clipToCollection(ee.FeatureCollection('USDOS/LSIB/2017'));
@@ -34,31 +38,31 @@ var lulc_2021 = ee.Image('projects/gcp-public-dataset-forestry/assets/LCMAPS_LCM
 var dem = ee.Image('CGIAR/SRTM90_V4').select('elevation').clipToCollection(ee.FeatureCollection('USDOS/LSIB/2017'));
 
 // --- Climate (CHIRPS 2021 monthly precipitation, sum to annual) ----------
-// Reference: https://developers.google.com/earth-engine/datasets/catalog/UCSB-CHG_CHIRPS_MONTHLY_V01_2
 var chirpsYear = ee.ImageCollection('UCSB-CHG/CHIRPS/MONTHLY')
                    .filterDate('2021-01-01', '2021-12-31')
                    .sum()
                    .clipToCollection(ee.FeatureCollection('USDOS/LSIB/2017'))
                    .rename('precip');
 
-// --- ET0 (MODIS MOD16A2, annual ET, 500 m) ------------------------------
-// We approximate ET0 as ET × (PET/PET+AE), but here we use a simpler
-// global reference ET climatology (ERA5-Land ET0).
-var et0 = ee.Image('ECMWF/ERA5_LAND_MONTHLY/AGGREGATION')
-              .select('spelled_et0')
-              .filterDate('2021-01-01', '2021-12-31')
-              .mean()
-              .clipToCollection(ee.FeatureCollection('USDOS/LSIB/2017'))
-              .rename('et0');
+// --- ET0 (ERA5-Land 2021) ------------------------------------------------
+// 【修正】ERA5-Land 是 ImageCollection，不能用 ee.Image 直接取
+var et0 = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY')
+            .filterDate('2021-01-01', '2021-12-31')
+            .select('potential_evaporation_sum') // 【修正】正确的波段名
+            .sum()
+            .multiply(1000) // m 转 mm
+            .clipToCollection(ee.FeatureCollection('USDOS/LSIB/2017'))
+            .rename('et0');
 
 // --- Population (WorldPop 100 m, 2020) ----------------------------------
-var pop = ee.Image('WorldPop/GPP/WDPA/population')
-              .select(['pop'])
-              .clipToCollection(ee.FeatureCollection('USDOS/LSIB/2017'))
-              .rename('population');
+// 【修正】WorldPop 是 ImageCollection，且路径不同
+var pop = ee.ImageCollection('WorldPop/GP/100m/pop')
+            .filter(ee.Filter.eq('year', 2020))
+            .mosaic()
+            .clipToCollection(ee.FeatureCollection('USDOS/LSIB/2017'))
+            .rename('population');
 
 // --- Simple biophysical table (hardcoded for demonstration) --------------
-// LULC 1 = Forest, 2 = Cropland, 3 = Urban
 var carbonPools = ee.FeatureCollection([
   ee.Feature(null, {lulc_code: 1, above: 150, below: 20, soil: 80, dead: 10}),
   ee.Feature(null, {lulc_code: 2, above: 10, below: 5,  soil: 60, dead:  2}),
@@ -102,7 +106,6 @@ Map.addLayer(awyOut.outputs.water_yield.clip(aoi),
              {min: 0, max: 1000}, 'water_yield_mm');
 
 print('\n===  C.  HABITAT QUALITY  ===');
-// Habitat suitability = LULC where veg=1
 var habitatSuit = lulc_2021.where(lulc_2021.eq(3), 0) // urban -> 0
                             .where(lulc_2021.eq(2), 0.5)
                             .where(lulc_2021.eq(1), 1)
@@ -128,8 +131,6 @@ Map.addLayer(natureAccess.outputs.nature_access.clip(aoi),
              {min: 0, max: 1}, 'nature_access');
 
 print('\n===  E.  SEDIMENT DELIVERY RATIO (SDR)  ===');
-// Simplified: slope-based SDR approximation
-var slope = ee.Terrain(dem).select('slope');
 var sdrOut = invest.models.sdr.run({
   dem: dem,
   lulc: lulc_2021,
@@ -140,11 +141,11 @@ Map.addLayer(sdrOut.outputs.sdr.clip(aoi),
              'sdr');
 
 print('\n===  F.  RECREATION VALUE  ===');
-// Create dummy amenity points (national parks)
 var parks = ee.FeatureCollection('USDAS/NRSS/TLDBoundary')
                 .filter(ee.Filter.eq('USE', 'National Parks'));
-var amenity = parks.reduceToImage(['geometry'], ee.Reducer.first())
-                     .reproject('EPSG:4326', null, 30);
+// 【修正】reduceToImage 参数写法，改为更稳妥的 paint 方法
+var amenity = ee.Image().paint(parks, 1).reproject('EPSG:4326', null, 30).rename('amenity');
+
 var recOut = invest.models.recreation.run({
   amenity_map: amenity,
   population: pop,
@@ -157,8 +158,5 @@ Map.addLayer(recOut.outputs.recreation_value.clip(aoi),
 // ---------------------------------------------------------------------------
 // 4.  Fit to view
 // ---------------------------------------------------------------------------
-Map.setCenter(-98.5, 39.8, 5);  // center on continental US
+Map.setCenter(-98.5, 39.8, 5);
 print('Done. All runs completed successfully.');
-print('Models exercised: carbon, annual_water_yield, habitat_quality,');
-print('                   urban_nature_access, sdr, recreation');
-print('For full model list see invest.models namespace.');
