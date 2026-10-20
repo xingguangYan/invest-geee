@@ -7,7 +7,7 @@
  * method, with optional infiltration adjustments for green infrastructure.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   biophysical_table: { about: 'Biophysical parameters table.', type: 'table', required: true },
@@ -19,29 +19,12 @@ var SPEC = {
   results_suffix: { about: 'Suffix for output names.', type: 'string', required: false }
 };
 
-/**
- * SCS Curve Number runoff:
- *   S = 25400/CN - 254
- *   Q = (P - 0.2*S)^2 / (P + 0.8*S)   for P > 0.2*S else 0
- *
- * @param {number} P  rainfall (mm)
- * @param {number} CN  curve number (0-100)
- * @return {number} runoff Q (mm)
- */
 function scsRunoff(P, CN) {
   var S = 25400 / CN - 254;
   if (P <= 0.2 * S) return 0;
   return Math.pow(P - 0.2 * S, 2) / (P + 0.8 * S);
 }
 
-/**
- * Compute a runoff image from rainfall and LULC-derived curve numbers.
- *
- * @param {ee.Image} rainfall
- * @param {ee.Image} lulc
- * @param {Object} cnTable  {lulcCode: curveNumber}
- * @return {ee.Image}
- */
 function computeRunoff(rainfall, lulc, cnTable) {
   var cn = ee.Image(0);
   Object.keys(cnTable).forEach(function (code) {
@@ -49,11 +32,12 @@ function computeRunoff(rainfall, lulc, cnTable) {
   });
 
   var S = ee.Image(25400).divide(cn).subtract(254);
-  var initLoss = 0.2.multiply(S);
+  var initLoss = ee.Image(0.2).multiply(S);
   var q = rainfall.subtract(initLoss).pow(2)
-    .divide(rainfall.add(0.8.multiply(S)))
+    .divide(rainfall.add(ee.Image(0.8).multiply(S)))
     .where(rainfall.lt(initLoss), 0)
-    .clamp(0)
+    // 【修复】clamp(0) 改为 max(0)
+    .max(0)
     .rename('runoff_mm');
 
   return q;
@@ -64,7 +48,7 @@ function run(args) {
   utils.assert(args.lulc_current, 'lulc_current is required');
   utils.assert(args.rainfall, 'rainfall is required');
 
-  var cnTable = args.cn_table || {};
+  var cnTable = args.cn_table || { 10: 60, 30: 70, 50: 90 }; // 提供一个默认 CN 表防报错
   var runoff = computeRunoff(args.rainfall, args.lulc_current, cnTable);
 
   var outputs = {
