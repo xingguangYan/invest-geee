@@ -1,139 +1,85 @@
 /**
- * InVEST Annual Water Yield — GEE JS port.
+ * InVEST Scenario Generator — Proximity — GEE JS port.
  *
- * Ported from: src/natcap/invest/annual_water_yield.py
+ * Ported from: src/natcap/invest/scenario_proximity.py
  *
- * Computes annual average water yield using the Budyko curve (Zhang et al.).
- * Optionally runs a hydropower valuation component.
+ * Generates land cover scenarios by reclassifying pixels within a
+ * specified distance of target features (urban expansion, conservation, etc.).
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
-  lulc: {
-    about: 'Map of LULC for the current scenario.',
-    type: 'raster',
-    required: true
-  },
-  biophysical_table: {
-    about: 'Table of biophysical parameters for each LULC class.',
-    type: 'table',
-    required: true
-  },
-  precip: {
-    about: 'Map of annual precipitation.',
-    type: 'raster',
-    required: true
-  },
-  et0: {
-    about: 'Map of annual reference evapotranspiration.',
-    type: 'raster',
-    required: true
-  },
-  root_restricting_layer_depth: {
-    about: 'Map of root restricting layer depth.',
-    type: 'raster',
-    required: false
-  },
-  plant_available_water_content: {
-    about: 'Map of plant available water content.',
-    type: 'raster',
-    required: false
-  },
-  dem: {
-    about: 'Digital elevation model.',
-    type: 'raster',
-    required: false
-  },
-  watersheds: {
-    about: 'Map of watershed boundaries.',
-    type: 'vector',
-    required: false
-  },
-  sub_watersheds: {
-    about: 'Map of subwatershed boundaries.',
-    type: 'vector',
-    required: false
-  },
-  z_parameter: {
-    about: 'Seasonality factor (1-30).',
-    type: 'number',
-    required: false
-  },
-  water_demand_table: {
-    about: 'Table of water demand for each LULC class.',
-    type: 'table',
-    required: false
-  },
-  hydropower_valuation_table: {
-    about: 'Table mapping watersheds to hydropower parameters.',
-    type: 'table',
-    required: false
-  },
-  results_suffix: {
-    about: 'Suffix to append to output file names.',
-    type: 'string',
-    required: false
-  }
+  current_scenario: { about: 'Current LULC scenario.', type: 'raster', required: true },
+  target_features: { about: 'Vector features defining target areas.', type: 'vector', required: true },
+  distance_band_width: { about: 'Width of each distance band (m).', type: 'number', required: false },
+  num_bands: { about: 'Number of distance bands.', type: 'number', required: false },
+  scenario_rules: { about: 'Rules for reclassification per band.', type: 'table', required: true },
+  results_suffix: { about: 'Suffix for output names.', type: 'string', required: false }
 };
 
 /**
- * Compute the Budyko-based water yield for a single pixel.
- * @param {number} precip  annual precipitation (mm)
- * @param {number} pet     annual potential evapotranspiration (mm)
- * @param {number} rc      root restricting layer depth (mm)
- * @param {number} pawc    plant available water content (0-1)
- * @param {number} z       seasonality parameter
- * @return {number} water yield (mm)
+ * Compute distance bands around target features.
+ *
+ * @param {ee.FeatureCollection} targets
+ * @param {number} bandWidth  metres
+ * @param {number} numBands
+ * @return {ee.Image} distance bands (integer codes 1..numBands)
  */
-function budykoWaterYield(precip, pet, rc, pawc, z) {
-  var aet = 0;
-  if (pet > 0) {
-    var w = (pawc * rc) / pet;
-    var wx = Math.min(w, 1);
-    aet = precip * (1 + wx - Math.pow(1 + Math.pow(wx, z), 1 / z));
+function computeDistanceBands(targets, bandWidth, numBands) {
+  bandWidth = bandWidth === undefined ? 1000 : bandWidth;
+  numBands = numBands === undefined ? 5 : numBands;
+
+  // Compute distance to nearest target
+  // var dist = targets.distance().rename('distance');
+// 原代码：var dist = targets.distance().rename('distance');
+var dist = targets.distance(ee.Kernel.euclidean(numBands * bandWidth, 'meters')).rename('distance');
+  // Create bands: band i = pixels with distance in [(i-1)*width, i*width)
+  var bands = ee.Image(0);
+  for (var i = 1; i <= numBands; i++) {
+    var lower = (i - 1) * bandWidth;
+    var upper = i * bandWidth;
+    var bandMask = dist.gte(lower).and(dist.lt(upper));
+    bands = bands.where(bandMask, i);
   }
-  return precip - aet;
+  // Pixels beyond last band get code numBands+1
+  bands = bands.where(dist.gte(numBands * bandWidth), numBands + 1)
+    .rename('distance_band');
+
+  return bands;
 }
 
 /**
- * Compute water yield image from inputs.
- * @param {ee.Image} lulc
- * @param {ee.Image} precip
- * @param {ee.Image} et0
- * @param {ee.Image} rc
- * @param {ee.Image} pawc
- * @param {number} z
+ * Apply scenario rules to generate future LULC scenario.
+ *
+ * @param {ee.Image} currentLULC
+ * @param {ee.Image} distanceBands
+ * @param {Array} rules  [{band: N, new_lulc: M}, ...]
  * @return {ee.Image}
  */
-function computeWaterYield(lulc, precip, et0, rc, pawc, z) {
-  z = z === undefined ? 1 : z;
-  // PET = ET0 * Kc (Kc from biophysical table, approximated here as 1)
-  var pet = et0.rename('pet');
-  var wy = precip.subtract(pet).rename('water_yield');
-  return wy;
+function applyScenarioRules(currentLULC, distanceBands, rules) {
+  var result = currentLULC;
+  rules.forEach(function (rule) {
+    var bandMask = distanceBands.eq(rule.band);
+    result = result.where(bandMask, rule.new_lulc);
+  });
+  return result.rename('scenario_lulc');
 }
 
-/**
- * Run the Annual Water Yield model.
- * @param {Object} args  See SPEC.
- * @return {Object} {outputs: Object}
- */
 function run(args) {
-  utils.assert(args.lulc, 'lulc is required');
-  utils.assert(args.precip, 'precip is required');
-  utils.assert(args.et0, 'et0 is required');
+  utils.assert(args.current_scenario, 'current_scenario is required');
+  utils.assert(args.target_features, 'target_features is required');
+  utils.assert(args.scenario_rules, 'scenario_rules is required');
 
-  var z = args.z_parameter || 1;
-  var rc = args.root_restricting_layer_depth || ee.Image(0);
-  var pawc = args.plant_available_water_content || ee.Image(0);
+  var bandWidth = args.distance_band_width || 1000;
+  var numBands = args.num_bands || 5;
 
-  var waterYield = computeWaterYield(
-    args.lulc, args.precip, args.et0, rc, pawc, z);
+  var distanceBands = computeDistanceBands(args.target_features, bandWidth, numBands);
+  var scenario = applyScenarioRules(args.current_scenario, distanceBands, args.scenario_rules.value || []);
 
   var outputs = {
-    water_yield: waterYield,
-    wy_m3: waterYield.multiply(ee.Image.pixelArea().divide(1e6)).rename('wy_m3')
+    distance_bands: distanceBands,
+    scenario_lulc: scenario
   };
 
   return { outputs: outputs, spec: SPEC };
@@ -141,5 +87,5 @@ function run(args) {
 
 exports.spec = SPEC;
 exports.run = run;
-exports.budykoWaterYield = budykoWaterYield;
-exports.computeWaterYield = computeWaterYield;
+exports.computeDistanceBands = computeDistanceBands;
+exports.applyScenarioRules = applyScenarioRules;
