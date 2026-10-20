@@ -6,7 +6,7 @@
  * Estimates wave energy density using the global WaveWatchIII dataset.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   wave_watch: { about: 'WaveWatchIII global gridded dataset.', type: 'raster', required: true },
@@ -25,16 +25,15 @@ var SPEC = {
  * @return {ee.Image}  wave energy density (W/m)
  */
 function computeWaveEnergy(waveWatch) {
+// 修改 `computeWaveEnergy` 函数内部：
   var g = 9.81;
-  var rho = 1025; // seawater density (kg/m^3)
-
+  var rho = 1025; 
   var hs = waveWatch.select('Hs').rename('Hs');
   var tp = waveWatch.select('Tp').rename('Tp');
-
-  var energy = 0.5.multiply(rho).multiply(g).multiply(hs.pow(2)); // J/m^2
-  var celerity = g.multiply(tp).divide(2 * Math.PI); // m/s
+  // 【修复】将常数 0.5 和 g 包装成 ee.Image
+  var energy = ee.Image(0.5).multiply(rho).multiply(g).multiply(hs.pow(2)); 
+  var celerity = ee.Image(g).multiply(tp).divide(2 * Math.PI); 
   var power = energy.multiply(celerity).rename('wave_power_Wm');
-
   return power;
 }
 
