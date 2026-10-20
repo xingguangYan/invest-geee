@@ -7,7 +7,7 @@
  * optionally with fertilizer/irrigation adjustments and economic valuation.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   lulc: { about: 'Land use / land cover map.', type: 'raster', required: true },
