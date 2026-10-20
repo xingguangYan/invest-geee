@@ -7,7 +7,7 @@
  * specified distance of target features (urban expansion, conservation, etc.).
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   current_scenario: { about: 'Current LULC scenario.', type: 'raster', required: true },
@@ -31,8 +31,9 @@ function computeDistanceBands(targets, bandWidth, numBands) {
   numBands = numBands === undefined ? 5 : numBands;
 
   // Compute distance to nearest target
-  var dist = targets.distance().rename('distance');
-
+  // var dist = targets.distance().rename('distance');
+// 原代码：var dist = targets.distance().rename('distance');
+var dist = targets.distance(ee.Kernel.euclidean(numBands * bandWidth, 'meters')).rename('distance');
   // Create bands: band i = pixels with distance in [(i-1)*width, i*width)
   var bands = ee.Image(0);
   for (var i = 1; i <= numBands; i++) {
