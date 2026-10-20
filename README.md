@@ -78,18 +78,6 @@ if not msg:
 
 ## GEE JavaScript 用法
 
-你指出的问题很关键：**把 `gee_port/` 目录直接上传到 GEE 的 Assets 中，确实无法通过 `require` 调用**。Assets 是存放栅格、矢量等数据资源的地方，而 `require` 只能加载存放在 GEE **代码编辑器仓库（Scripts）** 里的脚本模块。下面基于 `https://github.com/xingguangYan/invest-geee` 的实际结构，给出一套可操作的部署与调用流程。
-
----
-
-## 为什么原来的方式行不通
-
-GEE 的 `require()` 路径格式是 **`'users/你的GEE用户名/仓库名:脚本路径'`**，路径必须是**绝对路径**，且只能从你拥有或有读取权限的**代码编辑器仓库**中加载模块。`gee_port/` 是一个包含多个 `.js` 文件的目录，需要作为“脚本仓库”里的文件来管理，而不是作为“数据资产”上传到 Assets。
-
----
-
-## 正确部署流程（基于 `xingguangYan/invest-geee`）
-
 ### 第 1 步：获取你的 GEE 用户路径
 
 登录 [GEE Code Editor](https://code.earthengine.google.com/)，在左上角 **Scripts** 面板的 **Reader** 或 **Writer** 下，你通常会看到类似 `users/your_username` 的路径。记下 `your_username`，后面构造 `require` 路径时要用。
