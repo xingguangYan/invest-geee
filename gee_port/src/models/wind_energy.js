@@ -9,46 +9,22 @@
  * regime (cut-in, ramp, rated, cut-out).
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
-  wind_data: {
-    about: 'Gridded wind speed data (must have band "speed" with mean wind speed m/s).',
-    type: 'raster',
-    required: true
-  },
+  wind_data: { about: 'Gridded wind speed data.', type: 'raster', required: true },
   landmasses: { about: 'Land mask.', type: 'raster', required: true },
-  turbine_parameters: {
-    about: 'Turbine parameters table (V_cin, V_rate, V_cout, P_rate, m, lossrate, height).',
-    type: 'table',
-    required: true
-  },
+  turbine_parameters: { about: 'Turbine parameters table.', type: 'table', required: true },
   grid_connection_points: { about: 'Grid connection points.', type: 'vector', required: false },
   grid_connection_points_table: { about: 'Grid connection points table.', type: 'table', required: false },
   results_suffix: { about: 'Suffix for output names.', type: 'string', required: false }
 };
 
-/**
- * Weibull CDF: F(V) = 1 - exp(-(V/k)^lambda)
- * @param {number} v
- * @param {number} k  scale parameter (m/s)
- * @param {number} lambda  shape parameter
- * @return {number}
- */
 function weibullCDF(v, k, lambda) {
   if (v <= 0) return 0;
   return 1 - Math.exp(-Math.pow(v / k, lambda));
 }
 
-/**
- * Analytical approximation of average turbine power (W) from Weibull parameters.
- * This is an approximation that integrates the power curve against the Weibull PDF.
- *
- * @param {number} k  Weibull scale (m/s)
- * @param {number} lambda  Weibull shape
- * @param {Object} turbine  {V_cin, V_rate, V_cout, P_rate, m, lossrate}
- * @return {number} average power (W)
- */
 function weibullAvgPower(k, lambda, turbine) {
   var V_cin = turbine.V_cin || 3;
   var V_rate = turbine.V_rate || 12;
@@ -57,7 +33,6 @@ function weibullAvgPower(k, lambda, turbine) {
   var m = turbine.m || 1;
   var lossrate = turbine.lossrate || 0;
 
-  // Use numerical integration (trapezoidal) with 200 steps
   var n = 200;
   function f(v) {
     if (v < V_cin || v > V_cout) return 0;
@@ -85,13 +60,6 @@ function weibullAvgPower(k, lambda, turbine) {
   return integral * P_rate * (1 - lossrate);
 }
 
-/**
- * Compute wind energy density image from wind speed data and turbine parameters.
- *
- * @param {ee.Image} windData  must have band 'speed' with mean wind speed (m/s)
- * @param {Object} turbine
- * @return {ee.Image}
- */
 function computeWindEnergy(windData, turbine) {
   var V_cin = turbine.V_cin || 3;
   var V_rate = turbine.V_rate || 12;
@@ -100,22 +68,22 @@ function computeWindEnergy(windData, turbine) {
   var lossrate = turbine.lossrate || 0;
   var m = turbine.m || 1;
 
-  var k = windData.select('speed').rename('k'); // use mean as Weibull scale proxy
+  var k = windData.select('speed').rename('k'); 
 
-  // Approximate power output using piecewise linear power curve on k
-  // F(V_cin) and F(V_cout) and F(V_rate) via Weibull CDF
-  // Using a simplified approach: E[P] = P_rate * F(V_cout) * efficiency_factor
-  var fcinc = ee.Image(1).subtract(ee.Image(1).exp(ee.Image(-1).multiply(k.pow(-1).multiply(V_cin))));
-  var fcout = ee.Image(1).subtract(ee.Image(1).exp(ee.Image(-1).multiply(k.pow(-1).multiply(V_cout))));
-  var frate = ee.Image(1).subtract(ee.Image(1).exp(ee.Image(-1).multiply(k.pow(-1).multiply(V_rate))));
+  var x_cin = ee.Image(-1).multiply(k.pow(-1).multiply(V_cin));
+  var x_cout = ee.Image(-1).multiply(k.pow(-1).multiply(V_cout));
+  var x_rate = ee.Image(-1).multiply(k.pow(-1).multiply(V_rate));
+  
+  var fcinc = ee.Image(1).subtract(x_cin.exp());
+  var fcout = ee.Image(1).subtract(x_cout.exp());
+  var frate = ee.Image(1).subtract(x_rate.exp());
 
-  // Simplified: power is proportional to fraction of time above cut-in,
-  // with linear ramp from cut-in to rated
   var aboveCutin = ee.Image(1).subtract(fcinc);
   var aboveRate = fcout.subtract(fcinc);
   var rampFactor = frate.subtract(fcinc).divide(fcout.subtract(fcinc).add(1e-10)).clamp(0, 1);
 
-  var avgPower = P_rate.multiply(
+  // 【修复】将 P_rate 包装为 ee.Image
+  var avgPower = ee.Image(P_rate).multiply(
     aboveCutin.multiply(rampFactor).add(aboveRate.multiply(ee.Image(1).subtract(rampFactor)))
   ).multiply(ee.Image(1).subtract(lossrate)).clamp(0, P_rate).rename('avg_turbine_output_W');
 
