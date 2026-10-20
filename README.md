@@ -78,25 +78,93 @@ if not msg:
 
 ## GEE JavaScript 用法
 
-将 `src/natcap/invest/gee_port/` 整个目录上传到 GEE 项目的 Assets
-中, 然后在 Code Editor 中:
+你指出的问题很关键：**把 `gee_port/` 目录直接上传到 GEE 的 Assets 中，确实无法通过 `require` 调用**。Assets 是存放栅格、矢量等数据资源的地方，而 `require` 只能加载存放在 GEE **代码编辑器仓库（Scripts）** 里的脚本模块。下面基于 `https://github.com/xingguangYan/invest-geee` 的实际结构，给出一套可操作的部署与调用流程。
+
+---
+
+## 为什么原来的方式行不通
+
+GEE 的 `require()` 路径格式是 **`'users/你的GEE用户名/仓库名:脚本路径'`**，路径必须是**绝对路径**，且只能从你拥有或有读取权限的**代码编辑器仓库**中加载模块。`gee_port/` 是一个包含多个 `.js` 文件的目录，需要作为“脚本仓库”里的文件来管理，而不是作为“数据资产”上传到 Assets。
+
+---
+
+## 正确部署流程（基于 `xingguangYan/invest-geee`）
+
+### 第 1 步：获取你的 GEE 用户路径
+
+登录 [GEE Code Editor](https://code.earthengine.google.com/)，在左上角 **Scripts** 面板的 **Reader** 或 **Writer** 下，你通常会看到类似 `users/your_username` 的路径。记下 `your_username`，后面构造 `require` 路径时要用。
+
+### 第 2 步：在 GEE Code Editor 中创建脚本仓库
+
+在 **Scripts** 面板中点击 **New** → **Repository**，仓库名称建议就用 `invest-geee`，或者保持与 GitHub 仓库一致的名称。创建后，你会得到一个仓库路径，例如：
+
+```text
+users/your_username/invest-geee
+```
+
+### 第 3 步：把 `gee_port/` 中的脚本放入 GEE 仓库
+
+`invest-geee` 仓库的顶层有一个 `gee_port/` 目录，它是 GEE 移植版的副本。你需要把其中的 `.js` 文件（至少包括入口文件 `index.js` 及其依赖的模块）放到刚刚创建的 GEE 仓库中。
+
+有两种方式：
+
+**方式 A：手动创建/粘贴（适合文件较少或依赖简单）**
+
+在 GEE Code Editor 的 Scripts 面板中，右键你创建的 `invest-geee` 仓库 → **New** → **File**，按照 `gee_port/` 中的目录结构逐一创建同名 `.js` 文件，然后把 GitHub 上对应文件的内容粘贴进去。入口文件通常是 `index.js`。
+
+**方式 B：使用 `minee` 打包（适合依赖较多、文件分散的情况）**
+
+如果 `gee_port` 内部通过 `require` 互相引用，手动维护路径容易出错。可以在本地用 Node.js 安装 [`minee`](https://github.com/aazuspan/minee) —— 一个专门为 Earth Engine 设计的模块打包器。将 `gee_port` 的入口模块打包成一个单独的 `.js` 文件，再把这个单文件上传到 GEE 仓库。这样只需要维护一个文件，路径问题会少很多。
+
+### 第 4 步：修正 `require` 调用路径
+
+原来 README 中的写法 `require('user:/invest-geee/index.js')` 不符合 GEE 的路径规范。正确的调用方式应该是：
 
 ```javascript
-var invest = require('user:/invest-geee/index.js');
+var invest = require('users/your_username/invest-geee:index.js');
+```
 
-// 列出可用模型
-print(invest.models);
+把 `your_username` 替换成你实际的 GEE 用户名。如果 `index.js` 不在仓库根目录，而是在子目录中，路径也要相应调整，例如：
 
-// 运行碳模型
+```javascript
+var invest = require('users/your_username/invest-geee:gee_port/index.js');
+```
+
+**关键点**：`require` 路径中的仓库名和文件名**大小写敏感**，必须和 GEE 仓库中实际看到的完全一致。
+
+### 第 5 步：运行与验证
+
+路径正确后，就可以按照项目原本的设计调用模型了：
+
+```javascript
+var invest = require('users/your_username/invest-geee:index.js');
+
+print(invest.models); // 查看可用的 GEE 移植模型
+
 var result = invest.models.carbon.run({
-  lulc_current: ee.Image('projects/x/assets/lulc'),
-  biomass_table_path: 'projects/x/assets/biomass.csv',
-  workspace_dir: 'projects/x/output',
+  lulc_current: ee.Image('projects/your_project/assets/lulc'),
+  // ... 其他参数
 });
 
-// 导出结果
 export.image(result.outputs['carbon_current'], 'carbon_current');
 ```
+
+注意 `lulc_current` 等输入数据仍然应该放在 **Assets** 中（`projects/.../assets/...`），这与脚本模块的存放位置是两回事：**数据在 Assets，代码在 Scripts**。
+
+---
+
+## 常见问题排查
+
+| 现象 | 可能原因 | 处理 |
+|---|---|---|
+| `Module not found` / `Cannot find module` | `require` 路径拼写错误、用户名错误、仓库/文件不存在 | 在 Scripts 面板中逐级核对路径，确认文件确实存在于该仓库中 |
+| 路径中有 `user:` 开头 | 使用了非标准前缀 | GEE 要求以 `users/` 开头，而不是 `user:` |
+| 调用 `invest.models` 为 `undefined` | `index.js` 没有正确 `exports.models`，或入口文件放错了位置 | 检查 `index.js` 中是否有 `exports.models = {...}`，并确认 `require` 指向的是这个文件 |
+| 内部依赖报错 | `gee_port` 中其他 `.js` 文件没有一并上传，或内部相对路径引用未适配 GEE 仓库结构 | 上传全部依赖文件，或使用 `minee` 打包成单文件 |
+
+---
+
+**总结**：`gee_port/` 不是上传到 Assets，而是需要作为**代码编辑器 Scripts 仓库中的脚本文件**来管理；`require` 的路径格式是 `'users/你的GEE用户名/仓库名:文件路径'`，而不是 `'user:/...'`。按上述步骤把 `gee_port` 中的 `.js` 文件放入 GEE 脚本仓库后，原先的模型调用代码就可以正常工作了。
 
 ## 目录结构
 
