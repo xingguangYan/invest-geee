@@ -7,7 +7,7 @@
  * inflow volume, turbine efficiency, and head.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   watershed: { about: 'Watershed polygon.', type: 'vector', required: true },
