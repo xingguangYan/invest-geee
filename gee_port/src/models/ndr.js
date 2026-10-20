@@ -4,7 +4,7 @@
  * Ported from: src/natcap/invest/ndr/ndr.py
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   dem: { about: 'Digital elevation model.', type: 'raster', required: true },
@@ -31,7 +31,7 @@ function computeNDR(dem, lulc, biophysical) {
     exportCoeff = exportCoeff.where(lulc.eq(parseInt(code, 10)), b.n_export || 0);
   });
 
-  var slope = ee.Terrain(dem).select('slope');
+  var slope = ee.Terrain.products(dem).select('slope');
   var retentionAdjusted = retention.multiply(ee.Image(1).subtract(slope.divide(100))).rename('n_retention');
   var ndr = retentionAdjusted.rename('ndr');
   var exportTotal = exportCoeff.multiply(ndr).rename('n_export');
