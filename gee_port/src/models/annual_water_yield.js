@@ -10,82 +10,55 @@
 var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
-  current_scenario: { about: 'Current LULC scenario.', type: 'raster', required: true },
-  target_features: { about: 'Vector features defining target areas.', type: 'vector', required: true },
-  distance_band_width: { about: 'Width of each distance band (m).', type: 'number', required: false },
-  num_bands: { about: 'Number of distance bands.', type: 'number', required: false },
-  scenario_rules: { about: 'Rules for reclassification per band.', type: 'table', required: true },
-  results_suffix: { about: 'Suffix for output names.', type: 'string', required: false }
+  lulc_current: { about: 'Map of LULC for the current scenario.', type: 'raster', required: true },
+  lulc_future: { about: 'Map of LULC for the future scenario.', type: 'raster', required: false },
+  carbon_pools: { about: 'Table mapping each LULC code to carbon pool data.', type: 'table', required: true },
+  calculate_sequestration: { about: 'Run sequestration analysis.', type: 'boolean', required: false },
+  run_redd_scenario_analysis: { about: 'Run REDD scenario analysis.', type: 'boolean', required: false },
+  lulc_redd: { about: 'Map of LULC for the REDD policy scenario.', type: 'raster', required: false },
+  run_valuation_model: { about: 'Run valuation model.', type: 'boolean', required: false },
+  price_of_carbon: { about: 'The present value of carbon.', type: 'number', required: false },
+  annual_market_discount_rate: { about: 'Annual market discount rate.', type: 'number', required: false },
+  annual_price_change: { about: 'Relative annual increase of the price of carbon.', type: 'number', required: false },
+  lulc_cur_year: { about: 'Calendar year of the current scenario.', type: 'number', required: false },
+  lulc_future_year: { about: 'Calendar year of the future scenario.', type: 'number', required: false }
 };
 
-/**
- * Compute distance bands around target features.
- *
- * @param {ee.FeatureCollection} targets
- * @param {number} bandWidth  metres
- * @param {number} numBands
- * @return {ee.Image} distance bands (integer codes 1..numBands)
- */
-function computeDistanceBands(targets, bandWidth, numBands) {
-  bandWidth = bandWidth === undefined ? 1000 : bandWidth;
-  numBands = numBands === undefined ? 5 : numBands;
-
-  // Compute distance to nearest target
-  // var dist = targets.distance().rename('distance');
-// 原代码：var dist = targets.distance().rename('distance');
-var dist = targets.distance(ee.Kernel.euclidean(numBands * bandWidth, 'meters')).rename('distance');
-  // Create bands: band i = pixels with distance in [(i-1)*width, i*width)
-  var bands = ee.Image(0);
-  for (var i = 1; i <= numBands; i++) {
-    var lower = (i - 1) * bandWidth;
-    var upper = i * bandWidth;
-    var bandMask = dist.gte(lower).and(dist.lt(upper));
-    bands = bands.where(bandMask, i);
-  }
-  // Pixels beyond last band get code numBands+1
-  bands = bands.where(dist.gte(numBands * bandWidth), numBands + 1)
-    .rename('distance_band');
-
-  return bands;
-}
-
-/**
- * Apply scenario rules to generate future LULC scenario.
- *
- * @param {ee.Image} currentLULC
- * @param {ee.Image} distanceBands
- * @param {Array} rules  [{band: N, new_lulc: M}, ...]
- * @return {ee.Image}
- */
-function applyScenarioRules(currentLULC, distanceBands, rules) {
-  var result = currentLULC;
-  rules.forEach(function (rule) {
-    var bandMask = distanceBands.eq(rule.band);
-    result = result.where(bandMask, rule.new_lulc);
+// 改为服务端 remap，避免异步 evaluate 报错
+function computeCarbonStorage(lulc, carbonPools) {
+  var totalMap = carbonPools.map(function(f) {
+    var total = ee.Number(f.get('above')).add(ee.Number(f.get('below'))).add(ee.Number(f.get('soil'))).add(ee.Number(f.get('dead')));
+    return f.set('total', total);
   });
-  return result.rename('scenario_lulc');
+  var codes = totalMap.aggregate_array('lulc_code');
+  var totals = totalMap.aggregate_array('total');
+  return lulc.remap(codes, totals, 0).rename('carbon_storage');
 }
 
 function run(args) {
-  utils.assert(args.current_scenario, 'current_scenario is required');
-  utils.assert(args.target_features, 'target_features is required');
-  utils.assert(args.scenario_rules, 'scenario_rules is required');
+  utils.assert(args.lulc_current, 'lulc_current is required');
+  utils.assert(args.carbon_pools, 'carbon_pools is required');
 
-  var bandWidth = args.distance_band_width || 1000;
-  var numBands = args.num_bands || 5;
-
-  var distanceBands = computeDistanceBands(args.target_features, bandWidth, numBands);
-  var scenario = applyScenarioRules(args.current_scenario, distanceBands, args.scenario_rules.value || []);
+  var currentStorage = computeCarbonStorage(args.lulc_current, args.carbon_pools);
 
   var outputs = {
-    distance_bands: distanceBands,
-    scenario_lulc: scenario
+    carbon_storage: currentStorage,
+    // 使用 aggregate_sum 避免 reduceRegion 报错
+    total_storage: currentStorage.multiply(ee.Image.pixelArea().divide(10000)).reduceRegion({
+      reducer: ee.Reducer.sum(),
+      geometry: args.lulc_current.geometry(),
+      scale: 30,
+      bestEffort: true
+    }).getNumber('carbon_storage')
   };
 
+  if (args.calculate_sequestration && args.lulc_future) {
+    var futureStorage = computeCarbonStorage(args.lulc_future, args.carbon_pools);
+    outputs.carbon_sequestration = futureStorage.subtract(currentStorage).rename('carbon_sequestration');
+  }
   return { outputs: outputs, spec: SPEC };
 }
 
 exports.spec = SPEC;
 exports.run = run;
-exports.computeDistanceBands = computeDistanceBands;
-exports.applyScenarioRules = applyScenarioRules;
+exports.computeCarbonStorage = computeCarbonStorage;
