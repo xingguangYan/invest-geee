@@ -7,7 +7,7 @@
  * spatially-explicit stressor layers using a distance-decay function.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   habitat: { about: 'Map of habitat suitability.', type: 'raster', required: true },
@@ -33,11 +33,15 @@ function computeHabitatRisk(habitat, stressorLayers, weights, maxDistance, ampli
   amplitude = amplitude === undefined ? 1 : amplitude;
 
   var totalPressure = ee.Image(0);
+// 修改 `computeHabitatRisk` 函数内部：
   stressorLayers.forEach(function (layer, i) {
     var w = (weights && weights[i]) || 1;
     var mask = layer.gt(0);
-    var distance = mask.distance();
-    var decay = ee.Image(amplitude).exp(ee.Image(-1).multiply(distance).divide(maxDistance));
+    // var distance = mask.distance();
+    // 原代码：var distance = mask.distance();
+var distance = mask.distance(ee.Kernel.euclidean(maxDistance, 'meters'));
+    // 【修复】改成 .exp()
+    var decay = ee.Image(-1).multiply(distance).divide(maxDistance).exp().multiply(amplitude);
     totalPressure = totalPressure.add(layer.multiply(decay).multiply(w));
   });
   totalPressure = totalPressure.clamp(0, 1).rename('threat_pressure');
