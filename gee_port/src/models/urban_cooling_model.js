@@ -7,7 +7,7 @@
  * changes in the spatial extent and arrangement of vegetation.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   biophysical_table: { about: 'Biophysical parameters table.', type: 'table', required: true },
@@ -19,19 +19,9 @@ var SPEC = {
   results_suffix: { about: 'Suffix for output names.', type: 'string', required: false }
 };
 
-/**
- * Compute the cooling effect of vegetation as a function of
- * vegetation fraction within a search radius.
- *
- * @param {ee.Image} landCover
- * @param {Object} biophysical  {lulcCode: {cooling_capacity, ...}}
- * @param {number} radius  metres
- * @return {ee.Image}  LST change (K)
- */
 function computeCoolingEffect(landCover, biophysical, radius) {
   radius = radius === undefined ? 1000 : radius;
 
-  // vegetation fraction within radius
   var veg = ee.Image(0);
   Object.keys(biophysical).forEach(function (code) {
     var b = biophysical[code];
@@ -39,12 +29,10 @@ function computeCoolingEffect(landCover, biophysical, radius) {
     veg = veg.where(landCover.eq(parseInt(code, 10)), isVeg);
   });
 
-  var vegFrac = veg.mean(ee.Kernel.circle(radius / 30)).rename('veg_fraction');
-
-  // cooling capacity (K) — simplified: linear with veg fraction
+  // 【修复】使用 focal_mean 计算邻域均值
+  var vegFrac = veg.focal_mean(radius / 30, 'circle', 'pixels').rename('veg_fraction');
   var coolingCapacity = (biophysical && Object.keys(biophysical).length) ? 3 : 3;
-  var lstChange = vegFrac.multiply(ee.Image(-1)).multiply(coolingCapacity)
-    .rename('lst_change_K');
+  var lstChange = vegFrac.multiply(ee.Image(-1)).multiply(coolingCapacity).rename('lst_change_K');
 
   return lstChange;
 }
@@ -54,6 +42,7 @@ function run(args) {
   utils.assert(args.land_cover, 'land_cover is required');
 
   var radius = args.max_lag || 1000;
+  // 注意这里传入的空对象 {} 作为 biophysical，如需从 table 读取，需自行添加 .evaluate() 转换
   var lstChange = computeCoolingEffect(args.land_cover, {}, radius);
 
   var outputs = {
