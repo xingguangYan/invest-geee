@@ -4,7 +4,7 @@
  * Ported from: src/natcap/invest/seasonal_water_yield/seasonal_water_yield.py
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   lulc: { about: 'Map of LULC.', type: 'raster', required: true },
