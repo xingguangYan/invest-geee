@@ -7,7 +7,7 @@
  * (vegetated area) within a walkable distance threshold.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   landcover: { about: 'Land cover map.', type: 'raster', required: true },
@@ -17,15 +17,6 @@ var SPEC = {
   results_suffix: { about: 'Suffix for output names.', type: 'string', required: false }
 };
 
-/**
- * Compute the fraction of the population within walking distance of nature.
- *
- * @param {ee.Image} landcover
- * @param {ee.Image} population
- * @param {Array<number>} natureCodes  LULC codes that count as nature
- * @param {number} thresholdM  walking threshold (m)
- * @return {Object} {access_map, population_served}
- */
 function computeNatureAccess(landcover, population, natureCodes, thresholdM) {
   thresholdM = thresholdM === undefined ? 500 : thresholdM;
 
@@ -35,7 +26,8 @@ function computeNatureAccess(landcover, population, natureCodes, thresholdM) {
   });
 
   var popMask = population.gt(0);
-  var dist = nature.distance().rename('distance_to_nature');
+  // 【修复】增加 ee.Kernel.euclidean 核函数
+  var dist = nature.distance(ee.Kernel.euclidean(thresholdM, 'meters')).rename('distance_to_nature');
   var within = dist.lte(thresholdM);
   var accessMap = popMask.where(within, 1).where(popMask.not(), 0)
     .rename('nature_access');
