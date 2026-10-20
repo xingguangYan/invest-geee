@@ -7,7 +7,7 @@
  * threat-distance decay.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   habitat: { about: 'Map of habitat suitability by LULC.', type: 'raster', required: true },
@@ -35,12 +35,14 @@ function computeHabitatQuality(habitat, threat, maxDistance, amplitude, weight) 
   amplitude = amplitude === undefined ? 1 : amplitude;
   weight = weight === undefined ? 1 : weight;
 
+// 修改 `computeHabitatQuality` 函数内部：
   var threatMask = threat.gt(0);
-  var distance = threatMask.distance();
-  var decay = ee.Image(amplitude).exp(ee.Image(-1).multiply(distance).divide(maxDistance));
-  var threatPressure = threat.multiply(decay).multiply(weight).rename('threat_pressure');
-  threatPressure = threatPressure.clamp(0, 1);
-
+//  var distance = threatMask.distance();
+  // 原代码：var distance = threatMask.distance();
+var distance = threatMask.distance(ee.Kernel.euclidean(maxDistance, 'meters'));
+  // 【修复】改成 .exp()
+  var decay = ee.Image(-1).multiply(distance).divide(maxDistance).exp().multiply(amplitude);
+  var threatPressure = threat.multiply(decay).multiply(weight).rename('threat_pressure').clamp(0, 1);
   var quality = habitat.multiply(ee.Image(1).subtract(threatPressure)).rename('habitat_quality');
   return quality;
 }
