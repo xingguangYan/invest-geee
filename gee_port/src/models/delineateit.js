@@ -12,7 +12,7 @@
  * native InVEST binary or call via earthengine-api Python.
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   flow_direction: { about: 'Flow direction raster (D8 code).', type: 'raster', required: false },
