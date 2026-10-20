@@ -78,6 +78,28 @@ if not msg:
 
 ## GEE JavaScript 用法
 
+## 直接调用我的INVEST模型
+
+INVEST 是一个托管在 Google Earth Engine Git 仓库中的项目。拥有仓库访问权限的用户可以通过 Earth Engine Code Editor 直接加载，也可以在本地终端中克隆仓库。
+
+## 访问方式
+
+### 方式一：在 Earth Engine Code Editor 中加载
+
+拥有该仓库访问权限的用户，可以通过以下链接将其添加到 Code Editor：
+
+https://code.earthengine.google.com/?accept_repo=users/bqt2000204051/INVEST
+
+### 方式二：克隆 Git 仓库
+
+在终端中运行以下命令克隆仓库：
+
+```bash
+git clone https://earthengine.googlesource.com/users/bqt2000204051/INVEST
+
+
+## 自己安装到自己的script中方法
+
 ### 第 1 步：获取你的 GEE 用户路径
 
 登录 [GEE Code Editor](https://code.earthengine.google.com/)，在左上角 **Scripts** 面板的 **Reader** 或 **Writer** 下，你通常会看到类似 `users/your_username` 的路径。记下 `your_username`，后面构造 `require` 路径时要用。
@@ -286,6 +308,11 @@ stated.
 InVEST-geee is an independent project. It is not affiliated with,
 endorsed by, or sponsored by Stanford University or the Natural Capital
 Project. Names and trademarks remain the property of their respective owners.
+
+INVEST, Google Earth Engine repository.
+Repository: users/bqt2000204051/INVEST
+Code Editor: https://code.earthengine.google.com/?accept_repo=users/bqt2000204051/INVEST
+Git clone: https://earthengine.googlesource.com/users/bqt2000204051/INVEST
 
 © [年份] [你的姓名/组织]. 本教程采用 CC BY-NC-SA 4.0 许可。
 InVEST 模型源码版权归 Natural Capital Project, Stanford University 及贡献者所有，依据 Apache-2.0 发布。
