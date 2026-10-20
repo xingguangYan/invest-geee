@@ -160,3 +160,86 @@ D:\软件\INVEST\
 | `delineateit` | 流域划界 (DelineateIt) |
 | `scenario_gen_proximity` | 情景生成 (邻近法) |
 | `reservoir_hydropower_production` | 水库水电生产 (仅 GEE) |
+
+## 版权与许可
+
+本项目 **InVEST-geee** 包含来自不同来源的代码、翻译和文档，版权与许可分别如下。使用、复制、修改或分发本项目时，请同时遵守各部分的许可证。
+
+### 1. InVEST 模型 Python 源码
+
+本项目中来自官方 InVEST 的模型源码版权归：
+
+Copyright (c) Natural Capital Project, Stanford University and contributors.
+
+- 上游项目：https://github.com/natcap/invest
+- 上游版本：`3.20.2`
+- 许可证：Apache License 2.0
+- 许可证全文：见根目录 `LICENSE.txt` 及上游仓库 `LICENSE` / `NOTICE`
+
+本仓库不主张对上游 InVEST 源码的版权。对上游源码的修改、移植、封装和汉化由本仓库维护者完成；修改部分应保留上游版权声明，并在相关文件中注明修改说明。
+
+### 2. GEE JavaScript 移植版、CLI 包装与原创工具代码
+
+Copyright (c) [年份] [你的姓名/组织]
+
+- 覆盖范围：`gee_port/`、`src/natcap/invest/gee_port/`、`geee.py`、CLI 包装及由本人完全原创的工具代码和示例代码。
+- 许可证：MIT License
+- 说明：如某部分是对上游 InVEST 源码的直接翻译、移植或衍生，则该部分仍应遵守 Apache-2.0，并保留上游署名和 NOTICE；MIT 仅覆盖本人完全原创的部分。
+
+### 3. 中文汉化包
+
+Copyright (c) [年份] [你的姓名/组织]
+
+- 覆盖范围：`src/natcap/invest/internationalization/locales/zh/`
+- 许可证：MIT License
+
+### 4. 教程与文档
+
+Copyright (c) [年份] [你的姓名/组织]. 本教程文字、插图、示例说明和排版采用 **CC BY-NC-SA 4.0** 许可。
+
+你可以自由分享和改编本教程，但必须：
+
+1. 注明原作者和出处；
+2. 不得用于商业用途；
+3. 改编作品须采用相同许可证。
+
+教程引用格式建议：
+
+> [你的姓名/组织]. ([年份]). 《InVEST-geee 教程：InVEST 模型 Python 包与 Google Earth Engine 移植版》. [教程网址]. CC BY-NC-SA 4.0.
+
+### 5. 名称与隶属关系声明
+
+InVEST 名称及相关标识归 Natural Capital Project、Stanford University 或其相应权利人所有。本项目为独立项目，与 Stanford University 和 Natural Capital Project 无隶属关系，也未获得其官方背书。本项目对 InVEST 的引用仅用于说明来源和兼容性。
+
+InVEST-geee
+Copyright (c) [年份] [你的姓名/组织]
+
+This product includes software developed by the Natural Capital Project,
+Stanford University and contributors (https://github.com/natcap/invest),
+licensed under the Apache License, Version 2.0.
+
+The upstream InVEST source code is Copyright (c) Natural Capital Project,
+Stanford University and contributors. All upstream copyright notices,
+license texts, and NOTICE contents are retained in this distribution.
+
+Original portions of this project, including the Google Earth Engine
+JavaScript port, Chinese localization, command-line wrappers, and tutorial
+documentation, are Copyright (c) [年份] [你的姓名/组织], unless otherwise
+stated.
+
+InVEST-geee is an independent project. It is not affiliated with,
+endorsed by, or sponsored by Stanford University or the Natural Capital
+Project. Names and trademarks remain the property of their respective owners.
+
+© [年份] [你的姓名/组织]. 本教程采用 CC BY-NC-SA 4.0 许可。
+InVEST 模型源码版权归 Natural Capital Project, Stanford University 及贡献者所有，依据 Apache-2.0 发布。
+本项目与 Stanford University / Natural Capital Project 无隶属或背书关系。
+
+LICENSE.txt                 # Apache-2.0 原文，保留上游
+LICENSE-MIT.txt             # 你的原创代码 MIT
+LICENSE-CC-BY-NC-SA-4.0.txt # 教程文档 CC 许可
+NOTICE                      # 上游署名 + 你的项目声明
+README.md                   # 放上面的“版权与许可”章节
+
+
+
