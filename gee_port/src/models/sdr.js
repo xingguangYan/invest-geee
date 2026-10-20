@@ -4,7 +4,7 @@
  * Ported from: src/natcap/invest/sdr/sdr.py
  */
 
-var utils = require('../utils/index.js');
+var utils = require('users/bqt2000204051/INVEST:src/utils/index');
 
 var SPEC = {
   dem: { about: 'Digital elevation model.', type: 'raster', required: true },
@@ -24,8 +24,8 @@ var SPEC = {
  * @return {Object} {sdr: ee.Image, sed_export: ee.Image, sed_deposition: ee.Image}
  */
 function computeSDR(dem, lulc, biophysical) {
-  var slope = ee.Terrain(dem).select('slope');
-  var aspect = ee.Terrain(dem).select('aspect');
+  var slope = ee.Terrain.products(dem).select('slope');
+  var aspect = ee.Terrain.products(dem).select('aspect');
 
   var c = ee.Image(0);
   var p = ee.Image(0);
