@@ -81,7 +81,8 @@ if not msg:
 ## 直接调用我的INVEST模型
 
 INVEST 是一个托管在 Google Earth Engine Git 仓库中的项目。拥有仓库访问权限的用户可以通过 Earth Engine Code Editor 直接加载，也可以在本地终端中克隆仓库。
-![Uploading ScreenShot_2026-10-21_112605_391.png…]()
+<img width="2560" height="1271" alt="ScreenShot_2026-10-21_112605_391" src="https://github.com/user-attachments/assets/3eee17f2-20e8-432d-a9f4-4c7372ad3ff5" />
+
 
 ## 访问方式
 
